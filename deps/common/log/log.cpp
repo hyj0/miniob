@@ -77,6 +77,61 @@ bool Log::check_output(const LOG_LEVEL level, const char *module) {
   return false;
 }
 
+    int Log::output1(LOG_LEVEL level, const char *module, const char *prefix, const char *filepath, int fileline, const char *f, ...) {
+        bool locked = false;
+        try {
+            va_list args;
+            char msg[ONE_KILO];
+
+            va_start(args, f);
+            vsnprintf(msg, sizeof(msg), f, args);
+            va_end(args);
+
+            if (msg[strlen(msg)-1] == '\n') {
+                msg[strlen(msg) - 1] = '\0';
+            }
+
+            if (LOG_LEVEL_PANIC <= level && level <= console_level_) {
+                std::cout << prefix  << msg  << "                " << filepath << ":" << fileline << std::endl;
+            } else if (default_set_.find(module) != default_set_.end()) {
+                std::cout << prefix  << msg  << "                " << filepath << ":" << fileline << std::endl;
+            }
+
+            if (LOG_LEVEL_PANIC <= level && level <= log_level_) {
+                pthread_mutex_lock(&lock_);
+                locked = true;
+                ofs_ << prefix;
+                ofs_ << msg;
+                ofs_ << "                " << filepath << ":" << fileline;
+                ofs_ << "\n";
+                ofs_.flush();
+                log_line_++;
+                pthread_mutex_unlock(&lock_);
+                locked = false;
+            } else if (default_set_.find(module) != default_set_.end()) {
+                pthread_mutex_lock(&lock_);
+                locked = true;
+                ofs_ << prefix;
+                ofs_ << msg;
+                ofs_ << "                " << filepath << ":" << fileline;
+                ofs_ << "\n";
+                ofs_.flush();
+                log_line_++;
+                pthread_mutex_unlock(&lock_);
+                locked = false;
+            }
+
+        } catch (std::exception &e) {
+            if (locked) {
+                pthread_mutex_unlock(&lock_);
+            }
+            std::cerr << e.what() << std::endl;
+            return LOG_STATUS_ERR;
+        }
+
+        return LOG_STATUS_OK;
+    }
+
 int Log::output(const LOG_LEVEL level, const char *module, const char *prefix,
                 const char *f, ...) {
   bool locked = false;
@@ -88,10 +143,14 @@ int Log::output(const LOG_LEVEL level, const char *module, const char *prefix,
     vsnprintf(msg, sizeof(msg), f, args);
     va_end(args);
 
+    if (msg[strlen(msg)-1] == '\n') {
+        msg[strlen(msg) - 1] = '\0';
+    }
+
     if (LOG_LEVEL_PANIC <= level && level <= console_level_) {
-      std::cout << msg << std::endl;
+      std::cout << prefix  << msg  << std::endl;
     } else if (default_set_.find(module) != default_set_.end()) {
-      std::cout << msg << std::endl;
+      std::cout << prefix  << msg   << std::endl;
     }
 
     if (LOG_LEVEL_PANIC <= level && level <= log_level_) {

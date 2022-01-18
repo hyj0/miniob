@@ -89,6 +89,9 @@ class Log {
   int output(const LOG_LEVEL level, const char *module, const char *prefix,
              const char *f, ...);
 
+    int output1(const LOG_LEVEL level, const char *module, const char *prefix, const char *filepath,int fileline,
+               const char *f, ...);
+
   int set_console_level(const LOG_LEVEL console_level);
   LOG_LEVEL get_console_level();
 
@@ -174,9 +177,9 @@ extern Log *g_log;
               (u32_t)getpid(), gettid());                                       \
       common::g_log->rotate(p->tm_year + 1900, p->tm_mon + 1, p->tm_mday);      \
     }                                                                           \
-    snprintf(prefix, sizeof(prefix), "[%s %s %s %s %u]>>", sz_head,             \
-            (common::g_log)->prefix_msg(level), __FILE__,                       \
-             __FUNCTION__, (u32_t)__LINE__);                                    \
+    snprintf(prefix, sizeof(prefix), "[%s %s %s]>>", sz_head,             \
+            (common::g_log)->prefix_msg(level),                       \
+              __FUNCTION__);                                    \
   }
 
 #define LOG_OUTPUT(level, fmt, ...)                                             \
@@ -185,7 +188,7 @@ extern Log *g_log;
     if (g_log && g_log->check_output(level, __FILE__)) {                        \
       char prefix[ONE_KILO] = {0};                                              \
       LOG_HEAD(prefix, level);                                                  \
-      g_log->output(level, __FILE__, prefix, fmt, ##__VA_ARGS__);               \
+      g_log->output1(level, __FILE__, prefix,__FILE__, __LINE__, fmt, ##__VA_ARGS__);               \
     }                                                                           \
   } while (0)
 

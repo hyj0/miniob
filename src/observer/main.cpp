@@ -146,7 +146,9 @@ void quit_signal_handle(int signum) {
 }
 
 int main(int argc, char **argv) {
-  setSignalHandler(quit_signal_handle);
+
+
+    setSignalHandler(quit_signal_handle);
 
   parse_parameter(argc, argv);
 
@@ -157,6 +159,8 @@ int main(int argc, char **argv) {
     cleanup();
     return rc;
   }
+
+    LOG_INFO("Server start...");
 
   g_server = init_server();
   Server::init();

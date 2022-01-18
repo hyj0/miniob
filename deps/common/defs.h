@@ -31,7 +31,8 @@ namespace common {
 #if defined(__MACH__)
 #define gettid() ((long long)pthread_self())
 #elif defined(LINUX)
-#define gettid() ((long long)pthread_self())
+#include <sys/syscall.h>
+#define gettid() ((long long)syscall(__NR_gettid))
 #endif
 
 #endif
