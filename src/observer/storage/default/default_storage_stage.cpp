@@ -256,6 +256,12 @@ void DefaultStorageStage::handle_event(StageEvent *event) {
     }
   }
 
+  //todo:刷磁盘
+  rc = handler_->sync();
+    if (rc != RC::SUCCESS) {
+        LOG_ERROR("Failed to sync. rc=%d:%s", rc, strrc(rc));
+    }
+
   session_event->set_response(response);
   event->done_immediate();
 

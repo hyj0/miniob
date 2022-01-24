@@ -76,7 +76,7 @@ RC RecordPageHandler::init(DiskBufferPool &buffer_pool, int file_id, PageNum pag
 
   RC ret = RC::SUCCESS;
   if ((ret = buffer_pool.get_this_page(file_id, page_num, &page_handle_)) != RC::SUCCESS) {
-    LOG_ERROR("Failed to get page handle from disk buffer pool. ret=%d:%s", ret, strrc(ret));
+    LOG_ERROR("Failed to get page handle from disk buffer pool. ret=%d:%s file_id=%d page_num=%d", ret, strrc(ret), file_id, page_num);
     return ret;
   }
 
@@ -513,6 +513,7 @@ RC RecordFileScanner::get_next_record(Record *rec) {
   }
 
   if (1 == page_count) {
+      LOG_DEBUG("no data file_id_=%d", this->file_id_);
     return RC::RECORD_EOF;
   }
 

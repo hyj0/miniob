@@ -123,7 +123,13 @@ void ExecuteStage::handle_request(common::StageEvent *event) {
 
   switch (sql->flag) {
     case SCF_SELECT: { // select
-      do_select(current_db, sql, exe_event->sql_event()->session_event());
+      RC rc = do_select(current_db, sql, exe_event->sql_event()->session_event());
+      if (rc != RC::SUCCESS) {
+          session_event->set_response("FAILURE\n");
+          LOG_ERROR("do_select err ret=%d:%s", rc, strrc(rc));
+          exe_event->done_immediate();
+          return;
+      }
       exe_event->done_immediate();
     }
     break;

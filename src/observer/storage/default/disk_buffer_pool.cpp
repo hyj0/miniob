@@ -394,7 +394,7 @@ RC DiskBufferPool::force_page(BPFileHandle *file_handle, PageNum page_num)
         return rc;
       }
     }
-    bp_manager_.allocated[i] = false;
+//    bp_manager_.allocated[i] = false;//todo:并没有关闭，修复insert数据刷盘后select问题
     return RC::SUCCESS;
   }
   return RC::SUCCESS;
@@ -429,7 +429,7 @@ RC DiskBufferPool::force_all_pages(BPFileHandle *file_handle)
         return rc;
       }
     }
-    bp_manager_.allocated[i] = false;
+//    bp_manager_.allocated[i] = false;//todo:并没有关闭，修复insert数据刷盘后select问题
   }
   return RC::SUCCESS;
 }
