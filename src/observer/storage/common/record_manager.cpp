@@ -413,7 +413,12 @@ RC RecordFileHandler::insert_record(const char *data, int record_size, RID *rid)
   }
 
   // 找到空闲位置
-  return record_page_handler_.insert_record(data, rid);
+    ret = record_page_handler_.insert_record(data, rid);
+    RC tmp = record_page_handler_.deinit();
+    if (tmp != RC::SUCCESS) {
+        LOG_ERROR("Failed to deinit. file_id:%d", file_id_);
+    }
+    return ret;
 }
 
 RC RecordFileHandler::update_record(const Record *rec) {

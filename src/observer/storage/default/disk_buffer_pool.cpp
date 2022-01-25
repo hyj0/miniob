@@ -164,13 +164,29 @@ RC DiskBufferPool::close_file(int file_id)
     return tmp;
   }
 
+    //释放页面
+    int page_count = 0;
+    RC rc = get_page_count(file_id, &page_count);
+    if (rc != RC::SUCCESS) {
+        LOG_ERROR("get_page_count err ret=%d:%s", rc, strrc(rc));
+        return rc;
+    }
+    //todo:需要注意可能页已经被释放的
+    for (int i = page_count-1; i >= 0; --i) {
+        rc = dispose_page(file_id, i);
+        if (rc != RC::SUCCESS) {
+            LOG_ERROR("dispose_page err ret=%d:%s page_num=%d", rc, strrc(rc), i);
+            return rc;
+        }
+    }
+
   if (close(file_handle->file_desc) < 0) {
     LOG_ERROR("Failed to close fileId:%d, fileName:%s, error:%s", file_id, file_handle->file_name, strerror(errno));
     return RC::IOERR_CLOSE;
   }
   open_list_[file_id] = nullptr;
   delete (file_handle);
-  LOG_INFO("Successfully close file %d:%s.", file_id, file_handle->file_name);
+  LOG_INFO("Successfully close file %d.", file_id);
   return RC::SUCCESS;
 }
 
@@ -303,8 +319,10 @@ RC DiskBufferPool::mark_dirty(BPPageHandle *page_handle)
 
 RC DiskBufferPool::unpin_page(BPPageHandle *page_handle)
 {
-  page_handle->open = false;
   page_handle->frame->pin_count--;
+  if (page_handle->frame->pin_count == 0) {
+      page_handle->open = false;
+  }
   return RC::SUCCESS;
 }
 
