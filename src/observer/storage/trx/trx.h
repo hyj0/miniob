@@ -19,6 +19,7 @@ See the Mulan PSL v2 for more details. */
 #include <unordered_map>
 #include <unordered_set>
 #include <mutex>
+#include <map>
 
 #include "sql/parser/parse.h"
 #include "storage/common/record_manager.h"
@@ -69,6 +70,18 @@ public:
   }
 };
 
+struct CmpRID {
+    int operator()(const RID& left, const RID& right) const{
+        if (left.page_num < right.page_num) {
+            return true;
+        } else if (left.page_num == right.page_num && left.slot_num < right.slot_num) { // 次key
+            return true;
+        } else {
+            return false;
+        }
+    }
+};
+
 /**
  * 这里是一个简单的事务实现，可以支持提交/回滚。但是没有对并发访问做控制
  * 可以在这个基础上做备份恢复，当然也可以重写
@@ -80,6 +93,10 @@ public:
   static const char *trx_field_name();
   static AttrType trx_field_type();
   static int      trx_field_len();
+
+    RC update_record(Table *table, Record *record);
+
+    char * get_update_data(RID rid);
 
 public:
   Trx();
@@ -94,6 +111,7 @@ public:
 
   RC commit_insert(Table *table, Record &record);
   RC rollback_delete(Table *table, Record &record);
+    RC rollback_update(Table *table, Record &record);
 
   bool is_visible(Table *table, const Record *record);
 
@@ -115,6 +133,7 @@ private:
 private:
   int32_t  trx_id_ = 0;
   std::unordered_map<Table *, OperationSet> operations_;
+  std::map<RID, char *, CmpRID> update_data_; //更新的数据
 };
 
 #endif // __OBSERVER_STORAGE_TRX_TRX_H_

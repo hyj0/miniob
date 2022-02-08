@@ -26,6 +26,7 @@ struct RID;
 class Index;
 class IndexScanner;
 class RecordDeleter;
+class RecordUpdater;
 class Trx;
 
 class Table {
@@ -52,13 +53,18 @@ public:
   
   RC insert_record(Trx *trx, int value_num, const Value *values);
   RC update_record(Trx *trx, const char *attribute_name, const Value *value, int condition_num, const Condition conditions[], int *updated_count);
-  RC delete_record(Trx *trx, ConditionFilter *filter, int *deleted_count);
+
+    RC delete_record(Trx *trx, ConditionFilter *filter, int *deleted_count);
 
   RC scan_record(Trx *trx, ConditionFilter *filter, int limit, void *context, void (*record_reader)(const char *data, void *context));
 
   RC create_index(Trx *trx, const char *index_name, const char *attribute_name);
 
     RC destroy(const char *dir);
+
+    RC commit_update(Trx *trx, RID rid);
+
+    RC rollback_update(Trx *trx, RID rid);
 
 public:
   const char *name() const;
@@ -81,6 +87,7 @@ private:
 
   RC insert_record(Trx *trx, Record *record);
   RC delete_record(Trx *trx, Record *record);
+    RC update_record(Trx *trx, Record *record, Record *old_record);
 
 private:
   friend class RecordUpdater;
@@ -88,6 +95,8 @@ private:
 
   RC insert_entry_of_indexes(const char *record, const RID &rid);
   RC delete_entry_of_indexes(const char *record, const RID &rid, bool error_on_not_exists);
+    RC update_entry_of_indexes(const char *record, const RID rid, bool error_on_not_exists);
+
 private:
   RC init_record_handler(const char *base_dir);
   RC make_record(int value_num, const Value *values, char * &record_out);

@@ -370,6 +370,14 @@ RC Table::scan_record(Trx *trx, ConditionFilter *filter, int limit, void *contex
   rc = scanner.get_first_record(&record);
   for ( ; RC::SUCCESS == rc && record_count < limit; rc = scanner.get_next_record(&record)) {
     if (trx == nullptr || trx->is_visible(this, &record)) {
+        //事务内，更新的数据要替换
+        if (trx != nullptr) {
+            char *data = trx->get_update_data(record.rid);
+            if (data) {
+                record.data = data;
+            }
+        }
+
       rc = record_reader(&record, context);
       if (rc != RC::SUCCESS) {
         break;
@@ -520,8 +528,98 @@ RC Table::create_index(Trx *trx, const char *index_name, const char *attribute_n
   return rc;
 }
 
+
+class RecordUpdater{
+private:
+    Table & table_;
+    Trx *trx_;
+    const char *attribute_name_;
+    const Value *value_;
+    int updated_count_ = 0;
+public:
+    RecordUpdater(Table &table, Trx *pTrx, const char *attribute_name, const Value *value)
+            : table_(table), trx_(pTrx), attribute_name_(attribute_name), value_(value) {
+    }
+
+    int updated_count() {
+        return updated_count_;
+    }
+
+    RC update_record(Record *record) {
+        RC rc = RC::SUCCESS;
+        const TableMeta &tableMeta = table_.table_meta();
+
+        Record new_record;
+        new_record.rid.page_num = record->rid.page_num;
+        new_record.rid.slot_num = record->rid.slot_num;
+        new_record.data = new char [tableMeta.record_size() + 1];
+
+        //todo:更新内容
+        memcpy(new_record.data, record->data, tableMeta.record_size());
+
+        const FieldMeta *fieldMeta = tableMeta.field(attribute_name_);
+        switch (fieldMeta->type()) {
+            case INTS: {
+                *(int *)(new_record.data + fieldMeta->offset()) = *(int *)(value_->data);
+            }
+                break;
+            case FLOATS:{
+                *(float *)(new_record.data + fieldMeta->offset()) = *(float *)(value_->data);
+            }
+                break;
+            case CHARS: {
+                strcpy(new_record.data + fieldMeta->offset(), (char *)(value_->data));
+            }
+                break;
+            default: {
+                LOG_PANIC("Unsupported field type. type=%d", fieldMeta->type());
+                return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+            }
+        }
+
+        rc = table_.update_record(trx_,&new_record, record);
+        if (rc == RC::SUCCESS) {
+            updated_count_++;
+        }
+        return rc;
+    }
+};
+
+static RC record_reader_update_adapter(Record *record, void *context) {
+    RecordUpdater &record_updater = *(RecordUpdater *)context;
+    return record_updater.update_record(record);
+}
+
 RC Table::update_record(Trx *trx, const char *attribute_name, const Value *value, int condition_num, const Condition conditions[], int *updated_count) {
-  return RC::GENERIC_ERROR;
+    //检查字段
+    if (table_meta_.field(attribute_name) == NULL) {
+        return RC::SCHEMA_FIELD_NOT_EXIST;
+    } else {
+        const FieldMeta *fieldMeta = table_meta_.field(attribute_name);
+        if (fieldMeta->type() != value->type) {
+            return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        }
+    }
+
+    //检查类型
+    for (int i = 0; i < condition_num; ++i) {
+        if (table_meta_.field(conditions[i].left_attr.attribute_name) == NULL) {
+            return RC::SCHEMA_FIELD_NOT_EXIST;
+        }
+    }
+
+    CompositeConditionFilter condition_filter;
+    RC rc = condition_filter.init(*this, conditions, condition_num);
+    if (rc != RC::SUCCESS) {
+        return rc;
+    }
+
+    RecordUpdater updater(*this, trx, attribute_name, value);
+    rc = scan_record(trx, &condition_filter, -1, &updater, record_reader_update_adapter);
+    if (updated_count != nullptr) {
+        *updated_count = updater.updated_count();
+    }
+    return rc;
 }
 
 class RecordDeleter {
@@ -578,6 +676,22 @@ RC Table::delete_record(Trx *trx, Record *record) {
   return rc;
 }
 
+RC Table::update_record(Trx *trx, Record *record, Record *old_record) {
+    RC rc = RC::SUCCESS;
+    if (trx != nullptr) {
+        rc = trx->update_record(this, record);
+    } else {
+        rc = update_entry_of_indexes(record->data, record->rid, false);// 重复代码 refer to commit_delete
+        if (rc != RC::SUCCESS) {
+            LOG_ERROR("Failed to delete indexes of record (rid=%d.%d). rc=%d:%s",
+                      record->rid.page_num, record->rid.slot_num, rc, strrc(rc));
+        } else {
+            rc = record_handler_->update_record(record);
+        }
+    }
+    return rc;
+}
+
 RC Table::commit_delete(Trx *trx, const RID &rid) {
   RC rc = RC::SUCCESS;
   Record record;
@@ -599,6 +713,28 @@ RC Table::commit_delete(Trx *trx, const RID &rid) {
   return rc;
 }
 
+RC Table::commit_update(Trx *trx, RID rid) {
+    RC rc = RC::SUCCESS;
+    Record record;
+    record.rid.page_num = rid.page_num;
+    record.rid.slot_num = rid.slot_num;
+    record.data = trx->get_update_data(rid);
+
+    rc = update_entry_of_indexes(record.data, record.rid, false);
+    if (rc != RC::SUCCESS) {
+        LOG_ERROR("Failed to delete indexes of record(rid=%d.%d). rc=%d:%s",
+                  rid.page_num, rid.slot_num, rc, strrc(rc));// panic?
+    }
+
+    rc = record_handler_->update_record(&record);
+    delete [] (record.data);
+    if (rc != RC::SUCCESS) {
+        return rc;
+    }
+
+    return rc;
+}
+
 RC Table::rollback_delete(Trx *trx, const RID &rid) {
   RC rc = RC::SUCCESS;
   Record record;
@@ -609,6 +745,19 @@ RC Table::rollback_delete(Trx *trx, const RID &rid) {
 
   return trx->rollback_delete(this, record); // update record in place
 }
+
+
+RC Table::rollback_update(Trx *trx, RID rid) {
+    RC rc = RC::SUCCESS;
+    Record record;
+    rc = record_handler_->get_record(&rid, &record);
+    if (rc != RC::SUCCESS) {
+        return rc;
+    }
+
+    return trx->rollback_update(this, record);
+}
+
 
 RC Table::insert_entry_of_indexes(const char *record, const RID &rid) {
   RC rc = RC::SUCCESS;
@@ -632,6 +781,33 @@ RC Table::delete_entry_of_indexes(const char *record, const RID &rid, bool error
     }
   }
   return rc;
+}
+
+RC Table::update_entry_of_indexes(const char *record, const RID rid, bool error_on_not_exists) {
+    RC rc = RC::SUCCESS;
+    //todo:目前索引存储的rid，是字段无关的，索引不需要更新索引吗？
+    //todo:目前做法有点。。。待优化
+    for(Index *index : indexes_) {
+        Record old_record;
+        rc = record_handler_->get_record(&rid, &old_record);
+        if (rc != RC::SUCCESS) {
+            LOG_ERROR("get_record err rc=%d", rc);
+            return rc;
+        }
+        rc = index->delete_entry(old_record.data, &rid);
+        if (rc != RC::SUCCESS) {
+            if (rc != RC::RECORD_INVALID_KEY || !error_on_not_exists) {
+                break;
+            }
+        }
+    }
+    for (Index *index : indexes_) {
+        rc = index->insert_entry(record, &rid);
+        if (rc != RC::SUCCESS) {
+            break;
+        }
+    }
+    return rc;
 }
 
 Index *Table::find_index(const char *index_name) const {

@@ -84,6 +84,29 @@ RC Trx::delete_record(Table *table, Record *record) {
   return rc;
 }
 
+RC Trx::update_record(Table *table, Record *record) {
+    RC rc = RC::SUCCESS;
+    start_if_not_started();
+    Operation *old_oper = find_operation(table, record->rid);
+    if (old_oper != nullptr) {
+        if (old_oper->type() == Operation::Type::UPDATE) {
+            delete_operation(table, record->rid);
+        } else if (old_oper->type() == Operation::Type::INSERT) {
+
+        } else if (old_oper->type() == Operation::Type::DELETE) {
+            //todo：考虑上次是删除的情况
+        } else {
+
+        }
+    }
+
+//    set_record_trx_id(table, *record, trx_id_, false);
+    insert_operation(table, Operation::Type::UPDATE, record->rid);
+    update_data_[record->rid] = record->data;
+    return rc;
+}
+
+
 void Trx::set_record_trx_id(Table *table, Record &record, int32_t trx_id, bool deleted) const {
   const FieldMeta *trx_field = table->table_meta().trx_field();
   int32_t *ptrx_id = (int32_t*)(record.data + trx_field->offset());
@@ -161,6 +184,15 @@ RC Trx::commit() {
           }
         }
         break;
+          case Operation::Type::UPDATE: {
+              rc = table->commit_update(this, rid);
+              if (rc != RC::SUCCESS) {
+                  // handle rc
+                  LOG_ERROR("Failed to commit update operation. rid=%d.%d, rc=%d:%s",
+                            rid.page_num, rid.slot_num, rc, strrc(rc));
+              }
+          }
+              break;
         default: {
           LOG_PANIC("Unknown operation. type=%d", (int)operation.type());
         }
@@ -171,6 +203,7 @@ RC Trx::commit() {
 
   operations_.clear();
   trx_id_ = 0;
+  update_data_.clear();
   return rc;
 }
 
@@ -204,6 +237,15 @@ RC Trx::rollback() {
           }
         }
           break;
+          case Operation::Type::UPDATE: {
+              rc = table->rollback_update(this, rid);
+              if (rc != RC::SUCCESS) {
+                  // handle rc
+                  LOG_ERROR("Failed to rollback update operation. rid=%d.%d, rc=%d:%s",
+                            rid.page_num, rid.slot_num, rc, strrc(rc));
+              }
+          }
+              break;
         default: {
           LOG_PANIC("Unknown operation. type=%d", (int)operation.type());
         }
@@ -227,6 +269,16 @@ RC Trx::rollback_delete(Table *table, Record &record) {
   return RC::SUCCESS;
 }
 
+RC Trx::rollback_update(Table *table, Record &record) {
+    set_record_trx_id(table, record, 0, false);
+    std::map<RID, char *, CmpRID>::iterator it;
+    for (it = update_data_.begin(); it != update_data_.end(); ++it) {
+        delete [] it->second;
+    }
+    update_data_.clear();
+    return RC::SUCCESS;
+}
+
 bool Trx::is_visible(Table *table, const Record *record) {
   int32_t record_trx_id;
   bool record_deleted;
@@ -248,4 +300,13 @@ void Trx::start_if_not_started() {
   if (trx_id_ == 0) {
     trx_id_ = next_trx_id();
   }
+}
+
+char * Trx::get_update_data(RID rid) {
+    const std::map<RID, char *>::iterator &it = update_data_.find(rid);
+    if (it == update_data_.end()) {
+        return NULL;
+    } else {
+        return it->second;
+    }
 }
