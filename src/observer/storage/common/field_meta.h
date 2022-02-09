@@ -29,7 +29,7 @@ public:
   FieldMeta();
   ~FieldMeta() = default;
 
-  RC init(const char *name, AttrType attr_type, int attr_offset, int attr_len, bool visible);
+  RC init(const char *name, AttrType attr_type, int attr_offset, int attr_len, bool visible, AttrType real_type);
 
 public:
   const char *name() const;
@@ -37,6 +37,7 @@ public:
   int         offset() const;
   int         len() const;
   bool        visible() const;
+  AttrType realtype() const ;
 
 public:
   void desc(std::ostream &os) const;
@@ -50,5 +51,6 @@ private:
   int          attr_offset_;
   int          attr_len_;
   bool         visible_;
+    AttrType attr_read_type_;//实际的类型，用于char存储的date等类型
 };
 #endif // __OBSERVER_STORAGE_COMMON_FIELD_META_H__

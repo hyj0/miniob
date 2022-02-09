@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #include <limits.h>
 #include <string.h>
 #include <algorithm>
+#include <common/time/datetime.h>
 
 #include "storage/common/table.h"
 #include "storage/common/table_meta.h"
@@ -280,7 +281,19 @@ RC Table::make_record(int value_num, const Value *values, char * &record_out) {
   for (int i = 0; i < value_num; i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
     const Value &value = values[i];
-    memcpy(record + field->offset(), value.data, field->len());
+    if (field->realtype() == DATES) {
+        //2020-10-01
+        int ret = common::CheckDate((char *)value.data);
+        if (ret != 0) {
+            LOG_ERROR("CheckDate err ret=%d, s=%s", ret, value.data);
+            return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        }
+        strncpy(record + field->offset(), (char *)value.data, field->len());
+    } else if (field->type() == CHARS) {
+        strncpy(record + field->offset(), (char *)value.data, field->len());
+    } else {
+        memcpy(record + field->offset(), value.data, field->len());
+    }
   }
 
   record_out = record;
@@ -568,7 +581,17 @@ public:
             }
                 break;
             case CHARS: {
-                strcpy(new_record.data + fieldMeta->offset(), (char *)(value_->data));
+                if (fieldMeta->realtype() == DATES) {
+                    //todo：检查时间数据是否合法
+                    int ret = common::CheckDate(static_cast<const char *>(value_->data));
+                    if (ret != 0) {
+                        LOG_ERROR("CheckDate err ret=%d, s=%s", ret, value_->data);
+                        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+                    }
+                    strcpy(new_record.data + fieldMeta->offset(), (char *)(value_->data));
+                } else {
+                    strcpy(new_record.data + fieldMeta->offset(), (char *)(value_->data));
+                }
             }
                 break;
             default: {

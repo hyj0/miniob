@@ -40,7 +40,7 @@ typedef enum {
 } CompOp;
 
 //属性值类型
-typedef enum { UNDEFINED, CHARS, INTS, FLOATS } AttrType;
+typedef enum { UNDEFINED, CHARS, INTS, FLOATS, DATES } AttrType;
 
 //属性值
 typedef struct _Value {
@@ -97,6 +97,7 @@ typedef struct {
   char *name;     // Attribute name
   AttrType type;  // Type of attribute
   size_t length;  // Length of attribute
+    AttrType realtype;  // 真实的类型
 } AttrInfo;
 
 // struct of craete_table

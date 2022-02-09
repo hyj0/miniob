@@ -387,4 +387,67 @@ bool DateTime::is_valid_xml_datetime(const std::string &str) {
   return true;
 }
 
+    int CheckDate(const char *date) {
+        char *p = (char *)date;
+        if (strlen(p) != 10) {
+            return 1;
+        }
+        int year = 0;
+        for (int j = 0; j < 4; ++j) {
+            if ('0' <= *p && *p <= '9') {
+                year = year*10 + (*p-'0');
+            } else {
+                return 1;
+            }
+            p++;
+        }
+
+        if (*p != '-') {
+            return 1;
+        }
+        p++;
+
+        int month = 0;
+        for (int j = 0; j < 2; ++j) {
+            if ('0' <= *p && *p <= '9') {
+                month = month*10 + (*p-'0');
+            } else {
+                return 1;
+            }
+            p++;
+        }
+
+        if (*p != '-') {
+            return 1;
+        }
+        p++;
+
+        int day = 0;
+        for (int j = 0; j < 2; ++j) {
+            if ('0' <= *p && *p <= '9') {
+                day = day*10 + (*p-'0');
+            } else {
+                return 1;
+            }
+            p++;
+        }
+        //todo:时间范围，1970-2038， 2月29等
+        char date_str[64];
+        sprintf(date_str, "%sT00:00:00Z", date);
+        if (DateTime::is_valid_xml_datetime(date_str)) {
+
+        } else {
+            return 3;
+        }
+
+        common::Date date1(day, month, year);
+        tm tt = date1.to_tm();
+        if (tt.tm_year + 1900 == year && tt.tm_mon+1 == month && tt.tm_mday == day) {
+            return 0;
+        } else {
+            return 2;
+        }
+
+        return 0;
+    }
 } //namespace common

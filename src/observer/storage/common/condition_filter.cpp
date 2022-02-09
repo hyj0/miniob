@@ -13,6 +13,7 @@ See the Mulan PSL v2 for more details. */
 //
 
 #include <stddef.h>
+#include <common/time/datetime.h>
 #include "condition_filter.h"
 #include "record_manager.h"
 #include "common/log/log.h"
@@ -65,6 +66,7 @@ RC DefaultConditionFilter::init(Table &table, const Condition &condition)
 
   AttrType type_left = UNDEFINED;
   AttrType type_right = UNDEFINED;
+  AttrType real_type_left = UNDEFINED;
 
   if (1 == condition.left_is_attr) {
     left.is_attr = true;
@@ -79,10 +81,12 @@ RC DefaultConditionFilter::init(Table &table, const Condition &condition)
     left.value = nullptr;
 
     type_left = field_left->type();
+      real_type_left = field_left->realtype();
   } else {
     left.is_attr = false;
     left.value = condition.left_value.data;  // 校验type 或者转换类型
     type_left = condition.left_value.type;
+      real_type_left = type_left;
 
     left.attr_length = 0;
     left.attr_offset = 0;
@@ -118,6 +122,15 @@ RC DefaultConditionFilter::init(Table &table, const Condition &condition)
   // 但是选手们还是要实现。这个功能在预选赛中会出现
   if (type_left != type_right) {
     return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+  }
+
+  //处理特殊类型,DATE
+  if (real_type_left == DATES) {
+      int ret = common::CheckDate(static_cast<const char *>(right.value));
+      if (ret != 0) {
+          LOG_ERROR("CheckDate err ret=%d, s=%s", ret, right.value);
+          return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
   }
 
   return init(left, right, type_left, condition.comp);

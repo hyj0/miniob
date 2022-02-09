@@ -19,6 +19,7 @@ See the Mulan PSL v2 for more details. */
 
 const static Json::StaticString FIELD_NAME("name");
 const static Json::StaticString FIELD_TYPE("type");
+const static Json::StaticString FIELD_REALTYPE("realtype");
 const static Json::StaticString FIELD_OFFSET("offset");
 const static Json::StaticString FIELD_LEN("len");
 const static Json::StaticString FIELD_VISIBLE("visible");
@@ -27,11 +28,12 @@ const char *ATTR_TYPE_NAME[] = {
   "undefined",
   "chars",
   "ints",
-  "floats"
+  "floats",
+  "dates"
 };
 
 const char *attr_type_to_string(AttrType type) {
-  if (type >= UNDEFINED && type <= FLOATS) {
+  if (type >= UNDEFINED && type <= DATES) {
     return ATTR_TYPE_NAME[type];
   }
   return "unknown";
@@ -49,7 +51,7 @@ AttrType attr_type_from_string(const char *s) {
 FieldMeta::FieldMeta() : attr_type_(AttrType::UNDEFINED), attr_offset_(-1), attr_len_(0), visible_(false) {
 }
 
-RC FieldMeta::init(const char *name, AttrType attr_type, int attr_offset, int attr_len, bool visible) {
+RC FieldMeta::init(const char *name, AttrType attr_type, int attr_offset, int attr_len, bool visible, AttrType real_type = AttrType(UNDEFINED)) {
   if (nullptr == name || '\0' == name[0]) {
     LOG_WARN("Name cannot be empty");
     return RC::INVALID_ARGUMENT;
@@ -59,6 +61,12 @@ RC FieldMeta::init(const char *name, AttrType attr_type, int attr_offset, int at
     LOG_WARN("Invalid argument. name=%s, attr_type=%d, attr_offset=%d, attr_len=%d",
       name, attr_type, attr_offset, attr_len);
     return RC::INVALID_ARGUMENT;
+  }
+
+  if (AttrType::UNDEFINED == real_type) {
+      this->attr_read_type_ = attr_type;
+  } else {
+      this->attr_read_type_ = real_type;
   }
 
   name_ = name;
@@ -104,6 +112,7 @@ void FieldMeta::to_json(Json::Value &json_value) const {
   json_value[FIELD_OFFSET] = attr_offset_;
   json_value[FIELD_LEN]  = attr_len_;
   json_value[FIELD_VISIBLE] = visible_;
+  json_value[FIELD_REALTYPE] = attr_type_to_string(attr_read_type_);
 }
 
 RC FieldMeta::from_json(const Json::Value &json_value, FieldMeta &field) {
@@ -115,6 +124,7 @@ RC FieldMeta::from_json(const Json::Value &json_value, FieldMeta &field) {
 
   const Json::Value &name_value = json_value[FIELD_NAME];
   const Json::Value &type_value = json_value[FIELD_TYPE];
+    const Json::Value &realtype_value = json_value[FIELD_REALTYPE];
   const Json::Value &offset_value = json_value[FIELD_OFFSET];
   const Json::Value &len_value = json_value[FIELD_LEN];
   const Json::Value &visible_value = json_value[FIELD_VISIBLE];
@@ -126,6 +136,11 @@ RC FieldMeta::from_json(const Json::Value &json_value, FieldMeta &field) {
   if (!type_value.isString()) {
     LOG_ERROR("Field type is not a string. json value=%s", type_value.toStyledString().c_str());
     return RC::GENERIC_ERROR;
+  }
+
+  if (!realtype_value.isString()) {
+      LOG_ERROR("Field type is not a string. json value=%s", type_value.toStyledString().c_str());
+      return RC::GENERIC_ERROR;
   }
 
   if (!offset_value.isInt()) {
@@ -147,9 +162,19 @@ RC FieldMeta::from_json(const Json::Value &json_value, FieldMeta &field) {
     return RC::GENERIC_ERROR;
   }
 
+    AttrType realtype = attr_type_from_string(realtype_value.asCString());
+    if (UNDEFINED == realtype) {
+        LOG_ERROR("Got invalid field realtype. realtype=%d", type);
+        return RC::GENERIC_ERROR;
+    }
+
   const char *name = name_value.asCString();
   int offset = offset_value.asInt();
   int len = len_value.asInt();
   bool visible = visible_value.asBool();
-  return field.init(name, type, offset, len, visible);
+  return field.init(name, type, offset, len, visible, realtype);
+}
+
+AttrType FieldMeta::realtype() const {
+    return attr_read_type_;
 }

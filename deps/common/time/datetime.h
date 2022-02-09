@@ -435,5 +435,7 @@ public:
   static std::string unique();
 };
 
+int CheckDate(const char *date);
+
 } //namespace common
 #endif //__COMMON_TIME_DATETIME_H__
