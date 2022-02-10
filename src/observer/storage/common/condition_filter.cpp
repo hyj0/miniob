@@ -67,6 +67,7 @@ RC DefaultConditionFilter::init(Table &table, const Condition &condition)
   AttrType type_left = UNDEFINED;
   AttrType type_right = UNDEFINED;
   AttrType real_type_left = UNDEFINED;
+    AttrType real_type_right = UNDEFINED;
 
   if (1 == condition.left_is_attr) {
     left.is_attr = true;
@@ -102,12 +103,14 @@ RC DefaultConditionFilter::init(Table &table, const Condition &condition)
     right.attr_length = field_right->len();
     right.attr_offset = field_right->offset();
     type_right = field_right->type();
+    real_type_right = field_right->realtype();
 
     right.value = nullptr;
   } else {
     right.is_attr = false;
     right.value = condition.right_value.data;
     type_right = condition.right_value.type;
+      real_type_right = type_right;
 
     right.attr_length = 0;
     right.attr_offset = 0;
@@ -125,10 +128,17 @@ RC DefaultConditionFilter::init(Table &table, const Condition &condition)
   }
 
   //处理特殊类型,DATE
-  if (real_type_left == DATES) {
+  if (real_type_left == DATES && right.value != nullptr) {
       int ret = common::CheckDate(static_cast<const char *>(right.value));
       if (ret != 0) {
           LOG_ERROR("CheckDate err ret=%d, s=%s", ret, right.value);
+          return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+  }
+  if (real_type_right == DATES && left.value != nullptr) {
+      int ret = common::CheckDate(static_cast<const char *>(left.value));
+      if (ret != 0) {
+          LOG_ERROR("CheckDate err ret=%d, s=%s", ret, left.value);
           return RC::SCHEMA_FIELD_TYPE_MISMATCH;
       }
   }
