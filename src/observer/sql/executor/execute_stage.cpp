@@ -219,6 +219,284 @@ void end_trx_if_need(Session *session, Trx *trx, bool all_right) {
   }
 }
 
+RC DealSelectCondition(const char *db, Selects &selects)
+{
+    //检查表和字段，t.id, 对于只有id的情况，补上t
+    RC rc = RC::SUCCESS;
+
+    for (int i = 0; i < selects.condition_num; ++i) {
+        Condition &condition= selects.conditions[i];
+        if (condition.left_is_attr == 1) {
+            if (condition.left_attr.relation_name == nullptr)  {
+                for (int j = 0; j < selects.relation_num; ++j) {
+                    char *relation_name = selects.relations[j];
+                    Table *table = DefaultHandler::get_default().find_table(db, relation_name);
+                    if (table == nullptr) {
+                        continue;
+                    }
+                    if (table->table_meta().field(condition.left_attr.attribute_name)) {
+                        condition.left_attr.relation_name = const_cast<char *>(table->name());
+                    } else {
+                        continue;
+                    }
+                }
+                if (condition.left_attr.relation_name == nullptr) {
+                    return RC::SCHEMA_TABLE_NOT_EXIST;
+                }
+            }
+        }
+        if (condition.right_is_attr == 1) {
+            if (condition.right_attr.relation_name == nullptr)  {
+                for (int j = 0; j < selects.relation_num; ++j) {
+                    char *relation_name = selects.relations[j];
+                    Table *table = DefaultHandler::get_default().find_table(db, relation_name);
+                    if (table == nullptr) {
+                        continue;
+                    }
+                    if (table->table_meta().field(condition.right_attr.attribute_name)) {
+                        condition.right_attr.relation_name = const_cast<char *>(table->name());
+                    } else {
+                        continue;
+                    }
+                }
+                if (condition.right_attr.relation_name == nullptr) {
+                    return RC::SCHEMA_TABLE_NOT_EXIST;
+                }
+            }
+        }
+    }
+    
+    return rc;
+}
+
+RC DealMultiSelectAttr(const char *db, Selects &selects) {
+    //  todo:处理select的返回字段，将*展开
+    //      检查多表的t.id是否正确
+    if (selects.relation_num > 1) {
+        for (int i = 0; i < selects.attr_num; ++i) {
+            if (selects.attributes[i].relation_name == NULL) {
+                if (strcmp(selects.attributes[i].attribute_name, "*") == 0) {
+                    //
+                    if (selects.attr_num > 1) {
+                        LOG_ERROR("not support multi *");
+                        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+                    }
+                    //
+                    int attIndex = 0;
+                    for (int j = 0; j < selects.relation_num; ++j) {
+                        Table * table = DefaultHandler::get_default().find_table(db, selects.relations[j]);
+                        if (nullptr == table) {
+                            LOG_WARN("No such table [%s] in db [%s]", selects.attributes[i].relation_name, db);
+                            return RC::SCHEMA_TABLE_NOT_EXIST;
+                        }
+                        for (int k = table->table_meta().field_num()-1; k >= 0; k--) {
+                            if (table->table_meta().field(k)->visible()) {
+                                selects.attributes[attIndex].relation_name = selects.relations[j];
+                                selects.attributes[attIndex].attribute_name =
+                                        const_cast<char *>(table->table_meta().field(k)->name());
+                                attIndex += 1;
+                            }
+                        }
+                    }
+                    selects.attr_num = attIndex;
+                    return RC::SUCCESS;
+                } else {
+                    //id，没有表，查找
+                    for (int j = 0; j < selects.relation_num; ++j) {
+                        Table * table = DefaultHandler::get_default().find_table(db, selects.relations[j]);
+                        if (nullptr == table) {
+                            LOG_WARN("No such table [%s] in db [%s]", selects.attributes[i].relation_name, db);
+                            return RC::SCHEMA_TABLE_NOT_EXIST;
+                        }
+                        if (table->table_meta().field(selects.attributes[i].attribute_name)) {
+                            if (selects.attributes[i].relation_name == nullptr) {
+                                selects.attributes[i].relation_name = const_cast<char *>(table->name());
+                            } else {
+                                LOG_ERROR("same id!! %s %s id=%s", selects.attributes[i].relation_name, table->name(),
+                                          selects.attributes[i].attribute_name);
+                                return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+                            }
+                        }
+                    }
+                    continue;
+                }
+            } else {
+                //有表名
+                if (strcmp(selects.attributes[i].attribute_name, "*") == 0) {
+                    //t.*展开,todo:t.*在SQL解析时报错了
+
+                } else {
+                    //t.id
+
+                }
+            }
+        }
+    }
+    return RC::SUCCESS;
+}
+bool match_table(const Selects &selects, const char *table_name_in_condition, const char *table_name_to_match);
+RC __DealMultiSelectResult(const Selects selects, TupleSet &stRetTupleSet, std::vector<TupleSet> &mTupleSet, int mIndex, std::vector<int> &vIndex)
+{
+    RC rc = RC::SUCCESS;
+    if (mIndex < mTupleSet.size()) {
+        for (int i = 0; i < mTupleSet[mIndex].size(); ++i) {
+            vIndex.push_back(i);
+            __DealMultiSelectResult(selects, stRetTupleSet, mTupleSet, mIndex+1, vIndex);
+            vIndex.pop_back();
+        }
+    } else {
+        const TupleSchema &schema = stRetTupleSet.schema();
+        Tuple oneTuple;
+        for (int j = 0; j < schema.fields().size(); ++j) {
+            const TupleField &tupleField = schema.field(j);
+            //查找表
+            int tIndex = -1;
+            for (int i = 0; i < mTupleSet.size(); ++i) {
+                tIndex = mTupleSet[i].schema().index_of_field(tupleField.table_name(), tupleField.field_name());
+                if (tIndex < 0) {
+                    continue;
+                }
+                const Tuple &tuple = mTupleSet[i].tuples()[vIndex[i]];
+                const TupleValue &tupleValue = tuple.get(tIndex);
+                switch (tupleField.type()) {
+                    case INTS: {
+                        IntValue intValue = (IntValue &) tupleValue;
+                        oneTuple.add(new IntValue(intValue));
+                    }
+                        break;
+                    case FLOATS:{
+                        FloatValue floatValue = (FloatValue &)tupleValue;
+                        oneTuple.add(new FloatValue(floatValue));
+                    }
+                        break;
+                    case CHARS: {
+                        StringValue stringValue = (StringValue &)tupleValue;
+                        std::stringstream ss;
+                        tupleValue.to_string(ss);
+                        oneTuple.add(new StringValue(ss.str().c_str()));
+                    }
+                        break;
+                    default:
+                        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+                }
+                break;
+            }
+            if (tIndex < 0) {
+                LOG_ERROR("get value err!!!");
+                assert(0);
+            }
+
+        }
+
+        int match_flag = 0;
+        //比较条件 select * from t1,t2 where t1.id=t2.id2;
+        for (int k = 0; k < selects.condition_num; ++k) {
+            const Condition &condition = selects.conditions[k];
+            if (condition.left_is_attr == 1 && condition.right_is_attr == 1
+                && strcmp(condition.left_attr.relation_name, condition.right_attr.relation_name) != 0
+                && strcmp(condition.left_attr.attribute_name, condition.right_attr.attribute_name) != 0) {
+                //比较
+                LOG_DEBUG("compare %s.%s %s.%s",
+                          condition.left_attr.relation_name,
+                          condition.left_attr.attribute_name,
+                          condition.right_attr.relation_name,
+                          condition.right_attr.attribute_name);
+               
+                int left_index = -1;
+                int right_index = -1;
+                int left_tupleset_index = -1;
+                int right_tupleset_index = -1;
+                for (int i = 0; i < mTupleSet.size(); ++i) {
+                    left_index = mTupleSet[i].schema().index_of_field(condition.left_attr.relation_name, condition.left_attr.attribute_name);
+                    if (left_index >= 0) {
+                        left_tupleset_index = i;
+                        break;
+                    }
+                }
+                for (int i = 0; i < mTupleSet.size(); ++i) {
+                    right_index = mTupleSet[i].schema().index_of_field(condition.right_attr.relation_name, condition.right_attr.attribute_name);
+                    if (right_index >= 0) {
+                        right_tupleset_index = i;
+                        break;
+                    }
+                }
+                assert(left_index >= 0);
+                assert(right_index >= 0);
+                int ret = mTupleSet[left_tupleset_index].get(vIndex[left_tupleset_index]).get(left_index)
+                        .compare(mTupleSet[right_tupleset_index].get(vIndex[right_tupleset_index]).get(right_index));
+                if (condition.comp == CompOp::EQUAL_TO) {
+                    if (ret == 0) {
+                        match_flag = 1;
+                    } else {
+                        match_flag = 0;
+                        break;
+                    }
+                } else if (condition.comp == CompOp::GREAT_THAN) {
+                    if (ret > 0) {
+                        match_flag = 1;
+                    } else {
+                        match_flag = 0;
+                        break;
+                    }
+                } else if (condition.comp == CompOp::GREAT_EQUAL) {
+                    if (ret >= 0) {
+                        match_flag = 1;
+                    } else {
+                        match_flag = 0;
+                        break;
+                    }
+                } else if (condition.comp == CompOp::LESS_THAN) {
+                    if (ret < 0) {
+                        match_flag = 1;
+                    } else {
+                        match_flag = 0;
+                        break;
+                    }
+                } else if (condition.comp == CompOp::LESS_EQUAL) {
+                    if (ret <= 0) {
+                        match_flag = 1;
+                    } else {
+                        match_flag = 0;
+                        break;
+                    }
+                } else if (condition.comp == CompOp::NOT_EQUAL) {
+                    if (ret != 0) {
+                        match_flag = 1;
+                    } else {
+                        match_flag = 0;
+                        break;
+                    }
+                }  else {
+                    LOG_ERROR("not support!!! %d", condition.comp);
+                    return RC::GENERIC_ERROR;
+                }
+                
+            }
+        }
+        if (match_flag) {
+            stRetTupleSet.add(std::move(oneTuple));
+        }
+
+        std::stringstream ss;
+        for (int i = 0; i < vIndex.size(); ++i) {
+            ss << vIndex[i] << " ";
+        }
+        LOG_DEBUG("index=%s", ss.str().c_str());
+    }
+    return rc;
+}
+
+RC DealMultiSelectResult(const Selects selects, TupleSet &stRetTupleSet, std::vector<TupleSet> &mTupleSet)
+{
+    RC rc = RC::SUCCESS;
+    //
+    Tuple tuple;
+    std::vector<int> vIndex;
+    rc = __DealMultiSelectResult(selects, stRetTupleSet, mTupleSet, 0, vIndex);
+
+    return rc;
+}
+
 // 这里没有对输入的某些信息做合法性校验，比如查询的列名、where条件中的列名等，没有做必要的合法性校验
 // 需要补充上这一部分. 校验部分也可以放在resolve，不过跟execution放一起也没有关系
 RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_event) {
@@ -227,7 +505,18 @@ RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_eve
   Session *session = session_event->get_client()->session;
   Trx *trx = session->current_trx();
   const Selects &selects = sql->sstr.selection;
-  // 把所有的表和只跟这张表关联的condition都拿出来，生成最底层的select 执行节点
+
+    rc = DealMultiSelectAttr(db, sql->sstr.selection);
+    if (rc != RC::SUCCESS) {
+        return rc;
+    }
+
+    rc = DealSelectCondition(db, sql->sstr.selection);
+    if (rc != RC::SUCCESS) {
+        return rc;
+    }
+
+    // 把所有的表和只跟这张表关联的condition都拿出来，生成最底层的select 执行节点
   std::vector<SelectExeNode *> select_nodes;
   for (size_t i = 0; i < selects.relation_num; i++) {
     const char *table_name = selects.relations[i];
@@ -268,6 +557,48 @@ RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_eve
   std::stringstream ss;
   if (tuple_sets.size() > 1) {
     // 本次查询了多张表，需要做join操作
+    //todo:进行过滤，
+    // 利用selects.attributes集合数据，目前tuple_sets里面都有表名和字段名，可以进行匹配
+    // 检查关联，例如t1.id=t2.id2，目前只支持=
+
+    //处理返回字段
+    //todo:返回字段中，带*的在上面展开, 这里假设已经是有表名和字段名
+      TupleSet stRetTupleSet;
+      TupleSchema schema;
+      for (int i = selects.attr_num-1; i >= 0 ; --i) {
+          Table * table = DefaultHandler::get_default().find_table(db, selects.attributes[i].relation_name);
+          if (nullptr == table) {
+              LOG_WARN("No such table [%s] in db [%s]", selects.attributes[i].relation_name, db);
+              return RC::SCHEMA_TABLE_NOT_EXIST;
+          }
+          if (strcmp(selects.attributes[i].attribute_name, "*") == 0) {
+              for (int j = 0; j <table->table_meta().field_num(); ++j) {
+                  schema.add(table->table_meta().field(selects.attributes[i].attribute_name)->type() ,
+                          selects.attributes[i].relation_name,
+                          table->table_meta().field(j)->name());
+              }
+          } else {
+              schema.add(table->table_meta().field(selects.attributes[i].attribute_name)->type() , selects.attributes[i].relation_name, selects.attributes[i].attribute_name);
+          }
+      }
+      schema.setMultiTable(1);
+      stRetTupleSet.set_schema(schema);
+
+      std::stringstream ss1;
+      for (int k = 0; k < tuple_sets.size(); ++k) {
+          tuple_sets[k].print(ss1);
+      }
+      LOG_DEBUG("tuple_sets=\n%s", ss1.str().c_str());
+
+      //处理，笛卡尔积
+      rc = DealMultiSelectResult(selects, stRetTupleSet, tuple_sets);
+      if (rc != RC::SUCCESS) {
+          LOG_ERROR("DealMultiSelectResult err ret=%d:%s", rc, strrc(rc));
+          return rc;
+      }
+      stRetTupleSet.print(ss);
+      LOG_DEBUG("return=%s", ss.str().c_str());
+
   } else {
     // 当前只查询一张表，直接返回结果即可
     tuple_sets.front().print(ss);
@@ -347,6 +678,27 @@ RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, c
         return rc;
       }
       condition_filters.push_back(condition_filter);
+    } else if (condition.left_is_attr == 1 && condition.right_is_attr == 1) {
+        LOG_DEBUG("condition:%s.%s %s.%s", condition.left_attr.relation_name, condition.left_attr.attribute_name,
+                condition.right_attr.relation_name, condition.right_attr.attribute_name);
+        if (condition.left_attr.relation_name != nullptr && strcmp(condition.left_attr.relation_name, table_name) == 0) {
+            if (schema.index_of_field(table_name, condition.left_attr.attribute_name) < 0) {
+                RC rc = schema_add_field(table, condition.left_attr.attribute_name, schema);
+                if (rc != RC::SUCCESS) {
+                    return rc;
+                }
+            }
+        } else if (condition.right_attr.relation_name != nullptr && strcmp(condition.right_attr.relation_name, table_name) == 0) {
+            if (schema.index_of_field(table_name, condition.right_attr.attribute_name) < 0) {
+                RC rc = schema_add_field(table, condition.right_attr.attribute_name, schema);
+                if (rc != RC::SUCCESS) {
+                    return rc;
+                }
+            }
+        } else {
+            LOG_ERROR("condition no table name!");
+            return RC::SCHEMA_FIELD_NAME_ILLEGAL;
+        }
     }
   }
 

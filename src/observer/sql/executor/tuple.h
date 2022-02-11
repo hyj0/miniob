@@ -108,10 +108,14 @@ public:
   }
 
   void print(std::ostream &os) const;
+
+    void setMultiTable(int multiTable);
+
 public:
   static void from_table(const Table *table, TupleSchema &schema);
 private:
   std::vector<TupleField> fields_;
+  int multi_table_ = 0;
 };
 
 class TupleSet {
