@@ -388,13 +388,13 @@ RC __DealMultiSelectResult(const Selects selects, TupleSet &stRetTupleSet, std::
 
         }
 
-        int match_flag = 0;
+        int match_flag = 1;
         //比较条件 select * from t1,t2 where t1.id=t2.id2;
         for (int k = 0; k < selects.condition_num; ++k) {
             const Condition &condition = selects.conditions[k];
             if (condition.left_is_attr == 1 && condition.right_is_attr == 1
                 && strcmp(condition.left_attr.relation_name, condition.right_attr.relation_name) != 0
-                && strcmp(condition.left_attr.attribute_name, condition.right_attr.attribute_name) != 0) {
+                /*&& strcmp(condition.left_attr.attribute_name, condition.right_attr.attribute_name) != 0*/) {
                 //比较
                 LOG_DEBUG("compare %s.%s %s.%s",
                           condition.left_attr.relation_name,
@@ -697,7 +697,7 @@ RC create_selection_executor(Trx *trx, const Selects &selects, const char *db, c
             }
         } else {
             LOG_ERROR("condition no table name!");
-            return RC::SCHEMA_FIELD_NAME_ILLEGAL;
+//            return RC::SCHEMA_FIELD_NAME_ILLEGAL;
         }
     }
   }
