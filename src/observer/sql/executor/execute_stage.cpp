@@ -272,7 +272,7 @@ RC DealSelectCondition(const char *db, Selects &selects)
 RC DealMultiSelectAttr(const char *db, Selects &selects) {
     //  todo:处理select的返回字段，将*展开
     //      检查多表的t.id是否正确
-    if (selects.relation_num > 1) {
+    if (selects.relation_num > 1 || 1) {
         for (int i = 0; i < selects.attr_num; ++i) {
             if (selects.attributes[i].relation_name == NULL) {
                 if (strcmp(selects.attributes[i].attribute_name, "*") == 0) {
@@ -601,7 +601,147 @@ RC ExecuteStage::do_select(const char *db, Query *sql, SessionEvent *session_eve
 
   } else {
     // 当前只查询一张表，直接返回结果即可
-    tuple_sets.front().print(ss);
+    TupleSet stRetTupleSet;
+      TupleSchema schema;
+      Tuple tuple;
+
+      int nNormal = 0;
+      TupleSet &tupleSet = tuple_sets.front();
+      for (int i = selects.attr_num - 1; i >= 0 ; --i) {
+          const RelAttr &attr = selects.attributes[i];
+          switch (attr.relAttrType) {
+              case REL_NORMAL:{
+//                  if (nNormal < 0) {
+//                      return RC::SCHEMA;
+//                  }
+//                  nNormal += 1;
+                  int index = tupleSet.schema().index_of_field(attr.relation_name, attr.attribute_name);
+                  Table *table = DefaultHandler::get_default().find_table(db, attr.relation_name);
+                  schema.add(table->table_meta().field(attr.attribute_name)->type(), attr.relation_name, attr.attribute_name);
+                  const TupleValue &tupleValue = tupleSet.tuples().at(0).get(index);
+                  switch (table->table_meta().field(attr.attribute_name)->type()) {
+                      case CHARS:{
+                          tuple.add(new StringValue((StringValue &)tupleValue));
+                      }
+                          break;
+                      case FLOATS:{
+                          tuple.add(new FloatValue((FloatValue &)tupleValue));
+                      }
+                          break;
+                      case INTS:{
+                          tuple.add(new IntValue((IntValue &)tupleValue));
+                      }
+                          break;
+                      default:
+                          return RC::SCHEMA;
+
+                  }
+              }
+                  break;
+              case REL_MAX:{
+                  if (nNormal > 0) {
+                      return RC::SCHEMA;
+                  }
+                  nNormal -= 1;
+                  int index = tupleSet.schema().index_of_field(attr.relation_name, attr.attribute_name);
+                  Table *table = DefaultHandler::get_default().find_table(db, attr.relation_name);
+                  std::stringstream name;
+                  name << "max"<<"(" << attr.attribute_name << ")";
+                  schema.add(table->table_meta().field(attr.attribute_name)->type(), attr.relation_name, name.str().c_str());
+                  TupleValue *pTupleValue = nullptr;
+                  for (int j = 0; j < tupleSet.size(); ++j) {
+                      const TupleValue &tupleValue = tupleSet.get(j).get(index);
+                      if (pTupleValue == nullptr) {
+                          pTupleValue = const_cast<TupleValue *>(&tupleValue);
+                      } else {
+                          if (tupleValue.compare(*pTupleValue) > 0) {
+                              pTupleValue = const_cast<TupleValue *>(&tupleValue);
+                          }
+                      }
+                  }
+                  if (pTupleValue != nullptr) {
+                      switch (table->table_meta().field(attr.attribute_name)->type()) {
+                          case CHARS:{
+                              tuple.add(new StringValue(*(StringValue*)pTupleValue));
+                          }
+                              break;
+                          case FLOATS:{
+                              tuple.add(new FloatValue(*(FloatValue*)pTupleValue));
+                          }
+                              break;
+                          case INTS:{
+                              tuple.add(new IntValue(*(IntValue*)pTupleValue));
+                          }
+                              break;
+                          default:
+                              return RC::SCHEMA;
+
+                      }
+                  }
+              }
+                  break;
+              case REL_MIN:{
+                  if (nNormal > 0) {
+                      return RC::SCHEMA;
+                  }
+                  nNormal -= 1;
+                  int index = tupleSet.schema().index_of_field(attr.relation_name, attr.attribute_name);
+                  Table *table = DefaultHandler::get_default().find_table(db, attr.relation_name);
+                  std::stringstream name;
+                  name << "min"<<"(" << attr.attribute_name << ")";
+                  schema.add(table->table_meta().field(attr.attribute_name)->type(), attr.relation_name, name.str().c_str());
+                  TupleValue *pTupleValue = nullptr;
+                  for (int j = 0; j < tupleSet.size(); ++j) {
+                      const TupleValue &tupleValue = tupleSet.get(j).get(index);
+                      if (pTupleValue == nullptr) {
+                          pTupleValue = const_cast<TupleValue *>(&tupleValue);
+                      } else {
+                          if (tupleValue.compare(*pTupleValue) < 0) {
+                              pTupleValue = const_cast<TupleValue *>(&tupleValue);
+                          }
+                      }
+                  }
+                  if (pTupleValue != nullptr) {
+                      switch (table->table_meta().field(attr.attribute_name)->type()) {
+                          case CHARS:{
+                              tuple.add(new StringValue(*(StringValue*)pTupleValue));
+                          }
+                              break;
+                          case FLOATS:{
+                              tuple.add(new FloatValue(*(FloatValue*)pTupleValue));
+                          }
+                              break;
+                          case INTS:{
+                              tuple.add(new IntValue(*(IntValue*)pTupleValue));
+                          }
+                              break;
+                          default:
+                              return RC::SCHEMA;
+
+                      }
+                  }
+              }
+                  break;
+              case REL_COUNT:{
+
+              }
+                  break;
+              case REL_AVG:{
+
+              }
+                  break;
+              default:
+                  LOG_ERROR("no support relAttrType=%d", selects.attributes[i].relAttrType);
+                  break;
+          }
+      }
+      stRetTupleSet.set_schema(schema);
+      stRetTupleSet.add(std::move(tuple));
+      if (nNormal < 0) {
+          stRetTupleSet.print(ss);
+      } else {
+          tuple_sets.front().print(ss);
+      }
   }
 
   for (SelectExeNode *& tmp_node: select_nodes) {

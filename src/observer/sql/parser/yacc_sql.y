@@ -103,6 +103,8 @@ ParserContext *get_context(yyscan_t scanner)
         LE
         GE
         NE
+        MAX
+        MIN
 
 %union {
   struct _Attr *attr;
@@ -377,6 +379,18 @@ select_attr:
 			relation_attr_init(&attr, $1, $3);
 			selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
 		}
+	| MAX LBRACE ID RBRACE  attr_list {
+		RelAttr attr;
+                relation_attr_init(&attr, NULL, $3);
+		attr.relAttrType = REL_MAX;
+                selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+	}
+	| MIN LBRACE ID RBRACE  attr_list {
+        		RelAttr attr;
+                        relation_attr_init(&attr, NULL, $3);
+        		attr.relAttrType = REL_MIN;
+                        selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+        	}
     ;
 attr_list:
     /* empty */
@@ -394,6 +408,22 @@ attr_list:
         // CONTEXT->ssql->sstr.selection.attributes[CONTEXT->select_length].attribute_name=$4;
         // CONTEXT->ssql->sstr.selection.attributes[CONTEXT->select_length++].relation_name=$2;
   	  }
+	| COMMA MAX LBRACE ID RBRACE  attr_list {
+		RelAttr attr;
+                relation_attr_init(&attr, NULL, $4);
+                attr.relAttrType = REL_MAX;
+                selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+        // CONTEXT->ssql->sstr.selection.attributes[CONTEXT->select_length].attribute_name=$4;
+        // CONTEXT->ssql->sstr.selection.attributes[CONTEXT->select_length++].relation_name=$2;
+	}
+	| COMMA MIN LBRACE ID RBRACE  attr_list {
+        		RelAttr attr;
+                        relation_attr_init(&attr, NULL, $4);
+                        attr.relAttrType = REL_MIN;
+                        selects_append_attribute(&CONTEXT->ssql->sstr.selection, &attr);
+                // CONTEXT->ssql->sstr.selection.attributes[CONTEXT->select_length].attribute_name=$4;
+                // CONTEXT->ssql->sstr.selection.attributes[CONTEXT->select_length++].relation_name=$2;
+        	}
   	;
 
 rel_list:
