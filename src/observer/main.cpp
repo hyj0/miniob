@@ -160,6 +160,8 @@ int main(int argc, char **argv)
     return rc;
   }
 
+    LOG_INFO("Server start...");
+
   g_server = init_server();
   Server::init();
   g_server->serve();
