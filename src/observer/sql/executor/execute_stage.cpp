@@ -525,11 +525,18 @@ RC ExecuteStage::do_insert(SQLStageEvent *sql_event)
   InsertStmt *insert_stmt = (InsertStmt *)stmt;
 
   Table *table = insert_stmt->table();
-  RC rc = table->insert_record(nullptr, insert_stmt->value_amount(), insert_stmt->values());
-  if (rc == RC::SUCCESS) {
-    session_event->set_response("SUCCESS\n");
-  } else {
-    session_event->set_response("FAILURE\n");
+  RC rc = RC::SUCCESS;
+  for (int i = 0; i < insert_stmt->getNCount(); ++i) {
+    const Value *pValue = insert_stmt->values();
+    int nIndex = i * insert_stmt->getNValueSize();
+    rc = table->insert_record(nullptr, insert_stmt->getNValueSize(),
+                              &(pValue[nIndex]));
+    if (rc == RC::SUCCESS) {
+      session_event->set_response("SUCCESS\n");
+    } else {
+      session_event->set_response("FAILURE\n");
+      return rc;
+    }
   }
   return rc;
 }

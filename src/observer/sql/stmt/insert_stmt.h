@@ -25,9 +25,9 @@ class InsertStmt : public Stmt
 public:
 
   InsertStmt() = default;
-  InsertStmt(Table *table, const Value *values, int value_amount);
+  InsertStmt(Table *table, const Value *values, int valueAmount, int nCount, int nValueSize);
 
-  StmtType type() const override {
+    StmtType type() const override {
     return StmtType::INSERT;
   }
 public:
@@ -38,9 +38,19 @@ public:
   const Value *values() const { return values_; }
   int value_amount() const { return value_amount_; }
 
+  int getNCount() const {
+    return nCount;
+  }
+
+  int getNValueSize() const {
+    return nValueSize;
+  }
+
 private:
   Table *table_ = nullptr;
   const Value *values_ = nullptr;
   int value_amount_ = 0;
+  int nCount = 0; //insert count;  ()()()==3
+  int nValueSize = 0;//(a,b,...,size)
 };
 

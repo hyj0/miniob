@@ -79,6 +79,7 @@ typedef struct {
 // struct of insert
 typedef struct {
   char *relation_name;    // Relation to insert into
+  size_t size; // insert into t valus (a0, a1, ... a(size)),
   size_t value_num;       // Length of values
   Value values[MAX_NUM];  // values to insert
 } Inserts;

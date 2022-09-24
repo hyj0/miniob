@@ -44,7 +44,7 @@ void yyerror(yyscan_t scanner, const char *str)
   context->select_length = 0;
   context->value_length = 0;
   context->ssql->sstr.insertion.value_num = 0;
-  printf("parse sql failed. error=%s", str);
+  printf("parse sql failed. error=%s\n", str);
 }
 
 ParserContext *get_context(yyscan_t scanner)
@@ -279,26 +279,40 @@ ID_get:
 
 	
 insert:				/*insert   语句的语法解析树*/
-    INSERT INTO ID VALUES LBRACE value value_list RBRACE SEMICOLON 
+    INSERT INTO ID VALUES LBRACE value value_list RBRACE insert_value SEMICOLON
 		{
-			// CONTEXT->values[CONTEXT->value_length++] = *$6;
+//			 CONTEXT->values[CONTEXT->value_length++] = *$6;
 
 			CONTEXT->ssql->flag=SCF_INSERT;//"insert";
-			// CONTEXT->ssql->sstr.insertion.relation_name = $3;
-			// CONTEXT->ssql->sstr.insertion.value_num = CONTEXT->value_length;
-			// for(i = 0; i < CONTEXT->value_length; i++){
-			// 	CONTEXT->ssql->sstr.insertion.values[i] = CONTEXT->values[i];
-      // }
-			inserts_init(&CONTEXT->ssql->sstr.insertion, $3, CONTEXT->values, CONTEXT->value_length);
-
+			 CONTEXT->ssql->sstr.insertion.relation_name = $3;
+			 CONTEXT->ssql->sstr.insertion.value_num = CONTEXT->value_length;
+			 int i = 0;
+			 for(i = 0; i < CONTEXT->value_length; i++){
+			 	CONTEXT->ssql->sstr.insertion.values[i] = CONTEXT->values[i];
+       			}
+//			inserts_init(&CONTEXT->ssql->sstr.insertion, $3, CONTEXT->values, CONTEXT->value_length);
       //临时变量清零
       CONTEXT->value_length=0;
     }
-
+insert_value:
+/* empty */
+	| COMMA LBRACE value value_list RBRACE insert_value
+	{
+//		printf("insert_value\n");
+	}
+	;
 value_list:
     /* empty */
     | COMMA value value_list  { 
-  		// CONTEXT->values[CONTEXT->value_length++] = *$2;
+//  		 CONTEXT->values[CONTEXT->value_length++] = *$2;
+//  		 printf("value_list \n");
+	      if (CONTEXT->ssql->sstr.insertion.size == 0) {
+		  CONTEXT->ssql->sstr.insertion.size = CONTEXT->value_length;
+	      } else {
+		  if (CONTEXT->value_length % CONTEXT->ssql->sstr.insertion.size != 0) {
+		      return -1;
+		  }
+	      }
 	  }
     ;
 value:
